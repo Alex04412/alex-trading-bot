@@ -1,1 +1,11 @@
-avanza-api
+alpaca-py>=0.37.0
+newsapi-python>=0.2.7
+python-dotenv>=1.0.1
+pydantic>=2.8.2
+schedule>=1.2.2
+scikit-learn>=1.5.1
+transformers>=4.44.0
+torch>=2.4.0
+vectorbt>=0.26.0
+pandas>=2.2.2
+numpy>=2.0.1
