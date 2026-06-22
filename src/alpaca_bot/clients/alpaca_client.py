@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, StopOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical.stock import StockHistoricalDataClient
-from alpaca.data.requests import StockLatestTradeRequest
+from alpaca.data.requests import StockLatestTradeRequest, StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+
+EST = ZoneInfo("America/New_York")
 
 
 @dataclass
@@ -27,6 +32,46 @@ class AlpacaGateway:
         data = self._clients.market_data.get_stock_latest_trade(req)
         return float(data[symbol].price)
 
+    def get_latest_candle(self, symbol: str) -> dict:
+        """
+        Fetch the latest completed 5-minute candle for a symbol.
+        Returns {timestamp, open, high, low, close, volume, vwap}
+        """
+        now = datetime.now(tz=EST)
+        start = now - timedelta(minutes=15)  # grab last 15 min to ensure we get a completed candle
+
+        req = StockBarsRequest(
+            symbol_or_symbols=[symbol],
+            timeframe=TimeFrame.Minute,
+            start=start,
+            end=now,
+            limit=3,
+        )
+        bars = self._clients.market_data.get_stock_bars(req)
+        symbol_bars = bars[symbol]
+
+        if not symbol_bars:
+            raise ValueError(f"No candle data returned for {symbol}")
+
+        # Use the most recent completed bar
+        bar = symbol_bars[-1]
+
+        # Calculate VWAP manually if not provided (typical_price * volume / volume)
+        vwap = getattr(bar, "vwap", None)
+        if vwap is None:
+            typical_price = (bar.high + bar.low + bar.close) / 3
+            vwap = typical_price  # fallback approximation
+
+        return {
+            "timestamp": bar.timestamp.isoformat(),
+            "open":      float(bar.open),
+            "high":      float(bar.high),
+            "low":       float(bar.low),
+            "close":     float(bar.close),
+            "volume":    float(bar.volume),
+            "vwap":      float(vwap),
+        }
+
     def get_position(self, symbol: str) -> int:
         """Get current position qty for symbol (0 if none)."""
         try:
@@ -37,6 +82,14 @@ class AlpacaGateway:
             return 0
         except Exception:
             return 0
+
+    def close_position(self, symbol: str) -> None:
+        """Market close any open position for symbol."""
+        try:
+            self._clients.trading.close_position(symbol)
+            print(f"  ✅ Closed position for {symbol}")
+        except Exception as e:
+            print(f"  ⚠️  Could not close position for {symbol}: {e}")
 
     def submit_market_order(self, symbol: str, qty: float, side: str) -> str:
         order = MarketOrderRequest(
@@ -55,6 +108,26 @@ class AlpacaGateway:
             stop_price=stop_price,
             side=OrderSide.BUY if side.upper() == "BUY" else OrderSide.SELL,
             time_in_force=TimeInForce.DAY,
+        )
+        created = self._clients.trading.submit_order(order_data=order)
+        return str(created.id)
+
+    def submit_bracket_order(self, symbol: str, qty: float, stop_loss: float, take_profit: float) -> str:
+        """
+        Submit a bracket order — entry + stop loss + take profit in one order.
+        Used by ORB strategy.
+        """
+        from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
+        from alpaca.trading.enums import OrderClass
+
+        order = MarketOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.DAY,
+            order_class=OrderClass.BRACKET,
+            take_profit=TakeProfitRequest(limit_price=round(take_profit, 2)),
+            stop_loss=StopLossRequest(stop_price=round(stop_loss, 2)),
         )
         created = self._clients.trading.submit_order(order_data=order)
         return str(created.id)

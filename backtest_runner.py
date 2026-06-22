@@ -32,7 +32,10 @@ def run_backtest(
         api_key=cfg.alpaca_api_key,
         secret_key=cfg.alpaca_secret_key,
     )
-    engine = BacktestEngine(initial_cash=initial_cash)
+    engine = BacktestEngine(
+        initial_cash=initial_cash,
+        stop_loss_pct=cfg.stop_loss_pct,  # uses your .env value
+    )
 
     all_results = []
     for symbol in symbols:
