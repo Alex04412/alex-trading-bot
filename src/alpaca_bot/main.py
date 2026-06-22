@@ -11,7 +11,7 @@ from alpaca_bot.nlp.finbert_classifier import FinBERTClassifier
 from alpaca_bot.risk.stop_loss import RiskManager
 from alpaca_bot.strategy.signal_engine import SignalEngine
 from alpaca_bot.data.collector import BacktestDataCollector
-from alpaca_bot.strategies.orb import ORBStrategy
+from alpaca_bot.strategy.orb import ORBStrategy
 
 EST = ZoneInfo("America/New_York")
 
