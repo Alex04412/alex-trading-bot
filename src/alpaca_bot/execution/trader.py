@@ -14,24 +14,45 @@ class Trader:
         if signal is Signal.HOLD:
             return {"symbol": symbol, "action": "HOLD", "order_id": ""}
 
-        side = "BUY" if signal is Signal.BUY else "SELL"
-        last_price = self.alpaca.get_last_price(symbol)
-        qty = self.risk.calculate_quantity(last_price)
+        try:
+            side = "BUY" if signal is Signal.BUY else "SELL"
+            last_price = self.alpaca.get_last_price(symbol)
+            qty = self.risk.calculate_quantity(last_price)
 
-        if qty <= 0:
-            return {"symbol": symbol, "action": "SKIP", "order_id": ""}
+            if qty <= 0:
+                return {"symbol": symbol, "action": "SKIP", "order_id": "", "reason": "qty <= 0"}
 
-        order_id = self.alpaca.submit_market_order(symbol=symbol, qty=qty, side=side)
-        result = {"symbol": symbol, "action": side, "order_id": order_id}
+            # Check position before SELL
+            if side == "SELL":
+                position = self.alpaca.get_position(symbol)
+                if position <= 0:
+                    return {
+                        "symbol": symbol,
+                        "action": "SKIP",
+                        "order_id": "",
+                        "reason": f"no position to sell (have {position})",
+                    }
+                # Only sell what we have
+                qty = min(qty, position)
 
-        if signal is Signal.BUY:
-            stop_price = self.risk.stop_price(last_price)
-            stop_order_id = self.alpaca.submit_stop_order(
-                symbol=symbol,
-                qty=qty,
-                stop_price=stop_price,
-                side="SELL",
-            )
-            result["stop_order_id"] = stop_order_id
+            order_id = self.alpaca.submit_market_order(symbol=symbol, qty=qty, side=side)
+            result = {"symbol": symbol, "action": side, "order_id": order_id}
 
-        return result
+            if signal is Signal.BUY:
+                stop_price = self.risk.stop_price(last_price)
+                stop_order_id = self.alpaca.submit_stop_order(
+                    symbol=symbol,
+                    qty=qty,
+                    stop_price=stop_price,
+                    side="SELL",
+                )
+                result["stop_order_id"] = stop_order_id
+
+            return result
+        except Exception as e:
+            return {
+                "symbol": symbol,
+                "action": "ERROR",
+                "order_id": "",
+                "error": str(e),
+            }

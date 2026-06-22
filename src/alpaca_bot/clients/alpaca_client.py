@@ -27,6 +27,17 @@ class AlpacaGateway:
         data = self._clients.market_data.get_stock_latest_trade(req)
         return float(data[symbol].price)
 
+    def get_position(self, symbol: str) -> int:
+        """Get current position qty for symbol (0 if none)."""
+        try:
+            positions = self._clients.trading.get_all_positions()
+            for pos in positions:
+                if pos.symbol == symbol:
+                    return int(float(pos.qty))
+            return 0
+        except Exception:
+            return 0
+
     def submit_market_order(self, symbol: str, qty: float, side: str) -> str:
         order = MarketOrderRequest(
             symbol=symbol,

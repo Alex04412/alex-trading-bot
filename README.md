@@ -14,8 +14,8 @@ Nyhetsartiklar -> Text classifier -> Signal (BUY/SELL/HOLD) -> Alpaca Trade API
 
 - Broker/API: Alpaca Markets
 - Nyhetsdata: NewsAPI
-- NLP/Classifier: FinBERT (planerad) + scikit-learn (placeholder)
-- Backtesting: vectorbt (stub)
+- NLP/Classifier: **FinBERT** (yiyanghkust/finbert-tone) - financial sentiment analysis
+- Backtesting: **vectorbt** - historical strategy simulation
 - Schemalaggning: schedule
 
 ## Kom igang (Windows PowerShell)
@@ -73,7 +73,10 @@ POLL_INTERVAL_MINUTES=15
 	|   |-- alpaca_client.py
 	|   `-- news_client.py
 	|-- nlp/
-	|   `-- classifier.py
+	|   |-- classifier.py (legacy keyword-based)
+	|   `-- finbert_classifier.py (FinBERT-based)
+	|-- data/
+	|   `-- collector.py (backtest data storage)
 	|-- strategy/
 	|   `-- signal_engine.py
 	|-- risk/
@@ -83,13 +86,58 @@ POLL_INTERVAL_MINUTES=15
 	|-- scheduler/
 	|   `-- jobs.py
 	|-- backtest/
-	|   `-- vectorbt_stub.py
+	|   `-- engine.py (vectorbt backtesting)
 	|-- config.py
 	`-- main.py
+|-- backtest_runner.py (CLI for strategy backtesting)
 ```
+
+## FinBERT Sentiment Analysis
+
+Bot använder **FinBERT** för finansiell sentimentanalys.
+
+Sentiment-skala: **-1.0 till 1.0**
+- Positiv (bullish): 0.0 - 1.0
+- Negativ (bearish): -1.0 - 0.0
+- Neutral: 0.0
+
+FinBERT laddas ned automatiskt från HuggingFace (~250MB) vid forsta koring.
+
+## Backtesting med Vectorbt
+
+Live-trading samlar automatiskt in:
+- **Timestamp**: Signal-tid
+- **Pris**: Aktiepris vid tillfallet
+- **Sentiment Score**: FinBERT-klassificering
+- **Signal**: BUY/SELL/HOLD resultat
+
+Data lagras i: `backtest_data/{SYMBOL}_backtest.csv`
+
+### Kor backtest
+
+Efter insamling av data genom live-trading:
+
+```powershell
+.venv\Scripts\python.exe backtest_runner.py AAPL MSFT NVDA
+```
+
+Med egna sentiment-troskelvarден:
+
+```powershell
+.venv\Scripts\python.exe backtest_runner.py --buy-threshold 0.4 --sell-threshold -0.4 AAPL
+```
+
+Resultat visar:
+- Total avkastning %
+- Annualiserad avkastning %
+- Sharpe-kvot
+- Max drawdown %
+- Vinstfrekvens %
+- Antal trades
+- Total profit/loss
 
 ## Nasta steg
 
-- Byt ut `HeadlineClassifier` mot riktig FinBERT-pipeline.
-- Lagg till en riktig stop order/oco-strategi per symbol och position.
-- Koppla in vectorbt med historiska priser + nyhetssignaler.
+- Justera sentiment-troskelvardern baserat pa backtest-resultat.
+- Implementera riktig stop order/OCO (One-Cancels-Other) strategi.
+- Fine-tune FinBERT-modellen pa finansiell nyhetsdataset.
