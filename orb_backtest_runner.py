@@ -8,7 +8,7 @@ from alpaca_bot.backtest.orb_data_collector import ORBDataCollector
 from alpaca_bot.backtest.orb_engine import ORBBacktestEngine
 
 SYMBOLS = ["AAPL", "NVDA", "TSLA", "META", "AMD"]
-START = "2024-10-01"
+START = "2024-01-01"
 END   = "2025-01-01"
 cfg = load_config()
 
