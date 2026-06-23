@@ -45,12 +45,23 @@ for symbol in SYMBOLS:
 engine = ORBBacktestEngine(
     initial_cash=10000.0,
     fees=0.001,
-    orb_minutes=30,
-    rr_ratio=1.5,        # lower from 2.0 — easier to hit TP
-    vol_multiplier=1.0,  # remove volume filter effectively
+    orb_minutes=15,        # Raised from 30. Shorter ORB to catch more early-morning breakouts.
+    
+    # 1. AIM FOR CHUNKY WINS
+    rr_ratio=2.5,        # Raised from 1.5. Force the strategy to hunt for larger moves 
+                         # that make a 0.1% slippage fee negligible.
+                         
+    # 2. DEMAND INSTITUTIONAL MOMENTUM
+    vol_multiplier=1.3,  # Raised from 1.0. Do not enter unless volume is 30% higher 
+                         # than the morning average. This filters out low-liquidity fakeouts.
+                         
     sentiment_threshold=0.3,
-    max_risk_pct=0.05,
-    spy_data=spy_direction,  # loosen from 0.02 — allows volatile stocks
+    
+    # 3. KEEP RISK TIGHT
+    max_risk_pct=0.02,   # Lowered from 0.05. If the opening range is wider than 2%, 
+                         # the stock is too erratic today—skip it and protect capital.
+                         
+    spy_data=spy_direction,
 )
 
 all_results = []
