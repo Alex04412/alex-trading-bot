@@ -55,10 +55,13 @@ class ORBBacktestEngine:
 
         in_position = False
         position_side = "LONG"
+        
         entry_price = 0.0
         stop_loss = 0.0
         take_profit = 0.0
         qty = 0.0
+        
+        SLIPPAGE = 0.001  # 0.1% slippage on entry and exit
 
         for row in data:
             candle = {
@@ -69,9 +72,8 @@ class ORBBacktestEngine:
                 "close":     row["close"],
                 "volume":    row["volume"],
             }
-            sentiment = row["sentiment_score"]
             
-            # 💡 DEFINE IT HERE: Universally available to the entire loop
+            sentiment = row["sentiment_score"]
             ts_est = self._to_est(candle["timestamp"])
             date_str = ts_est.strftime("%Y-%m-%d")
             
@@ -81,7 +83,9 @@ class ORBBacktestEngine:
             if in_position:
                 if position_side == "LONG":
                     if candle["low"] <= stop_loss:
-                        pnl = (stop_loss - entry_price) * qty * (1 - self.fees)
+                        # Selling to exit: Slippage lowers your sell price
+                        real_exit_price = stop_loss * (1 - SLIPPAGE)
+                        pnl = (real_exit_price - entry_price) * qty * (1 - self.fees)
                         cash += entry_price * qty + pnl
                         trades.append({
                             "exit": row["timestamp"],
@@ -89,12 +93,14 @@ class ORBBacktestEngine:
                             "exit_type": "STOP_LOSS",
                             "side": "LONG",
                             "entry": entry_price,
-                            "exit_price": stop_loss,
+                            "exit_price": real_exit_price,
                         })
                         in_position = False
 
                     elif candle["high"] >= take_profit:
-                        pnl = (take_profit - entry_price) * qty * (1 - self.fees)
+                        # Selling to exit: Slippage lowers your sell price
+                        real_exit_price = take_profit * (1 - SLIPPAGE)
+                        pnl = (real_exit_price - entry_price) * qty * (1 - self.fees)
                         cash += entry_price * qty + pnl
                         trades.append({
                             "exit": row["timestamp"],
@@ -102,13 +108,13 @@ class ORBBacktestEngine:
                             "exit_type": "TAKE_PROFIT",
                             "side": "LONG",
                             "entry": entry_price,
-                            "exit_price": take_profit,
+                            "exit_price": real_exit_price,
                         })
                         in_position = False
 
                     elif orb.should_force_close(candle):
-                        exit_price = candle["close"]
-                        pnl = (exit_price - entry_price) * qty * (1 - self.fees)
+                        real_exit_price = candle["close"] * (1 - SLIPPAGE)
+                        pnl = (real_exit_price - entry_price) * qty * (1 - self.fees)
                         cash += entry_price * qty + pnl
                         trades.append({
                             "exit": row["timestamp"],
@@ -116,14 +122,15 @@ class ORBBacktestEngine:
                             "exit_type": "EOD_CLOSE",
                             "side": "LONG",
                             "entry": entry_price,
-                            "exit_price": exit_price,
+                            "exit_price": real_exit_price,
                         })
                         in_position = False
 
                 elif position_side == "SHORT":
-                    # For shorts: stop loss above entry, take profit below
                     if candle["high"] >= stop_loss:
-                        pnl = (entry_price - stop_loss) * qty * (1 - self.fees)
+                        # Buying to cover: Slippage raises your buy price
+                        real_exit_price = stop_loss * (1 + SLIPPAGE)
+                        pnl = (entry_price - real_exit_price) * qty * (1 - self.fees)
                         cash += entry_price * qty + pnl
                         trades.append({
                             "exit": row["timestamp"],
@@ -131,12 +138,14 @@ class ORBBacktestEngine:
                             "exit_type": "STOP_LOSS",
                             "side": "SHORT",
                             "entry": entry_price,
-                            "exit_price": stop_loss,
+                            "exit_price": real_exit_price,
                         })
                         in_position = False
 
                     elif candle["low"] <= take_profit:
-                        pnl = (entry_price - take_profit) * qty * (1 - self.fees)
+                        # Buying to cover: Slippage raises your buy price
+                        real_exit_price = take_profit * (1 + SLIPPAGE)
+                        pnl = (entry_price - real_exit_price) * qty * (1 - self.fees)
                         cash += entry_price * qty + pnl
                         trades.append({
                             "exit": row["timestamp"],
@@ -144,13 +153,14 @@ class ORBBacktestEngine:
                             "exit_type": "TAKE_PROFIT",
                             "side": "SHORT",
                             "entry": entry_price,
-                            "exit_price": take_profit,
+                            "exit_price": real_exit_price,
                         })
                         in_position = False
 
                     elif orb.should_force_close(candle):
-                        exit_price = candle["close"]
-                        pnl = (entry_price - exit_price) * qty * (1 - self.fees)
+                        # Buying to cover: Slippage raises your buy price
+                        real_exit_price = candle["close"] * (1 + SLIPPAGE)
+                        pnl = (entry_price - real_exit_price) * qty * (1 - self.fees)
                         cash += entry_price * qty + pnl
                         trades.append({
                             "exit": row["timestamp"],
@@ -158,7 +168,7 @@ class ORBBacktestEngine:
                             "exit_type": "EOD_CLOSE",
                             "side": "SHORT",
                             "entry": entry_price,
-                            "exit_price": exit_price,
+                            "exit_price": real_exit_price,
                         })
                         in_position = False
 
@@ -170,20 +180,24 @@ class ORBBacktestEngine:
                 vol_spike = candle["volume"] >= (orb.orb_avg_vol or 0) * self.vol_multiplier
                 
                 market_bullish = self.spy_data.get(date_str, 1.0) > 0 if self.spy_data else True
+                
                 # LONG — price breaks above ORB high
                 if orb.should_enter(candle, sentiment) and not past_cutoff and market_bullish:
                     levels = orb.get_levels(candle["close"])
-                    risk_pct = (candle["close"] - levels["stop_loss"]) / candle["close"]
+                    
+                    # Buying to enter: Slippage raises your entry price
+                    real_entry_price = candle["close"] * (1 + SLIPPAGE)
+                    risk_pct = (real_entry_price - levels["stop_loss"]) / real_entry_price
 
                     if risk_pct > self.max_risk_pct:
                         pass  # stop too wide, skip
                     else:
-                        entry_price  = candle["close"]
-                        stop_loss    = levels["stop_loss"]
-                        take_profit  = levels["take_profit"]
-                        qty          = (cash * 0.95) / entry_price
-                        cash        -= entry_price * qty * (1 + self.fees)
-                        in_position  = True
+                        entry_price   = real_entry_price
+                        stop_loss     = levels["stop_loss"]
+                        take_profit   = levels["take_profit"]
+                        qty           = (cash * 0.95) / entry_price
+                        cash         -= entry_price * qty * (1 + self.fees)
+                        in_position   = True
                         position_side = "LONG"
 
                 # SHORT — price breaks below ORB low with negative sentiment
@@ -195,26 +209,31 @@ class ORBBacktestEngine:
                     and not force_close
                 ):
                     risk         = orb.orb_mid - candle["close"]
+                    
+                    # Selling to enter short: Slippage lowers your execution price
+                    real_entry_price = candle["close"] * (1 - SLIPPAGE)
                     stop_loss    = orb.orb_mid
-                    take_profit  = candle["close"] - (risk * self.rr_ratio)
-                    risk_pct     = (stop_loss - candle["close"]) / candle["close"]
+                    take_profit  = real_entry_price - (risk * self.rr_ratio)
+                    risk_pct     = (stop_loss - real_entry_price) / real_entry_price
 
                     if risk_pct > self.max_risk_pct:
                         pass  # stop too wide, skip
                     else:
-                        entry_price  = candle["close"]
-                        qty          = (cash * 0.95) / entry_price
-                        cash        -= entry_price * qty * (1 + self.fees)
-                        in_position  = True
+                        entry_price   = real_entry_price
+                        qty           = (cash * 0.95) / entry_price
+                        cash         -= entry_price * qty * (1 + self.fees)
+                        in_position   = True
                         position_side = "SHORT"
 
         # Force close anything still open at end of data
         if in_position and data:
-            exit_price = data[-1]["close"]
             if position_side == "LONG":
-                pnl = (exit_price - entry_price) * qty * (1 - self.fees)
+                real_exit_price = data[-1]["close"] * (1 - SLIPPAGE)
+                pnl = (real_exit_price - entry_price) * qty * (1 - self.fees)
             else:
-                pnl = (entry_price - exit_price) * qty * (1 - self.fees)
+                real_exit_price = data[-1]["close"] * (1 + SLIPPAGE)
+                pnl = (entry_price - real_exit_price) * qty * (1 - self.fees)
+                
             cash += entry_price * qty + pnl
             trades.append({
                 "exit": data[-1]["timestamp"],
@@ -222,7 +241,7 @@ class ORBBacktestEngine:
                 "exit_type": "EOD_CLOSE",
                 "side": position_side,
                 "entry": entry_price,
-                "exit_price": exit_price,
+                "exit_price": real_exit_price,
             })
 
         # ── Metrics ──────────────────────────────────────────────────────
