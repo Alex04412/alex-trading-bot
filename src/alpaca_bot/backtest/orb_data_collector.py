@@ -148,7 +148,19 @@ class ORBDataCollector:
             ts = article.created_at
             if isinstance(ts, str):
                 ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            date_str = ts.astimezone(EST).strftime("%Y-%m-%d")
+            
+            ts_est = ts.astimezone(EST)
+            
+            # Only use pre-market news (before 9:30 AM)
+            # Apply it to THAT DAY's trading session
+            if ts_est.hour < 9 or (ts_est.hour == 9 and ts_est.minute < 30):
+                date_str = ts_est.strftime("%Y-%m-%d")
+            else:
+                # After-hours news applies to NEXT trading day
+                from datetime import timedelta
+                next_day = (ts_est + timedelta(days=1)).strftime("%Y-%m-%d")
+                date_str = next_day
+
             score = self._score(article.headline)
             daily.setdefault(date_str, []).append(score)
 
